@@ -11,12 +11,8 @@ declare(strict_types=1);
  * file that was distributed with this source code.
  */
 
-namespace Sonata\AdminBundle\Tests\Fixtures\Bundle\Entity;
+namespace Sonata\AdminBundle\Tests\Fixtures\Entity;
 
-final class Comment
+abstract class AbstractEntity
 {
-    public function __toString(): string
-    {
-        return 'this is a comment';
-    }
 }

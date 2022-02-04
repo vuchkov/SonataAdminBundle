@@ -44,6 +44,8 @@ use Symfony\Component\Form\FormInterface;
 use Symfony\Component\HttpFoundation\InputBag;
 use Symfony\Component\HttpFoundation\ParameterBag;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\PropertyAccess\Exception\AccessException;
+use Symfony\Component\PropertyAccess\Exception\UninitializedPropertyException;
 use Symfony\Component\PropertyAccess\PropertyAccess;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface as RoutingUrlGeneratorInterface;
 use Symfony\Component\Security\Acl\Model\DomainObjectInterface;
@@ -564,7 +566,7 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
         if ($this->isChild()) { // the admin class is a child, prefix it with the parent route pattern
             $baseRoutePattern = $this->baseRoutePattern;
             if (null === $baseRoutePattern) {
-                preg_match(self::CLASS_REGEX, $this->class, $matches);
+                preg_match(self::CLASS_REGEX, $this->getModelClass(), $matches);
 
                 if (!$matches) {
                     throw new \LogicException(sprintf(
@@ -584,7 +586,7 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
         } elseif (null !== $this->baseRoutePattern) {
             $this->cachedBaseRoutePattern = $this->baseRoutePattern;
         } else {
-            preg_match(self::CLASS_REGEX, $this->class, $matches);
+            preg_match(self::CLASS_REGEX, $this->getModelClass(), $matches);
 
             if (!$matches) {
                 throw new \LogicException(sprintf(
@@ -618,7 +620,7 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
         if ($this->isChild()) { // the admin class is a child, prefix it with the parent route name
             $baseRouteName = $this->baseRouteName;
             if (null === $baseRouteName) {
-                preg_match(self::CLASS_REGEX, $this->class, $matches);
+                preg_match(self::CLASS_REGEX, $this->getModelClass(), $matches);
 
                 if (!$matches) {
                     throw new \LogicException(sprintf(
@@ -638,7 +640,7 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
         } elseif (null !== $this->baseRouteName) {
             $this->cachedBaseRouteName = $this->baseRouteName;
         } else {
-            preg_match(self::CLASS_REGEX, $this->class, $matches);
+            preg_match(self::CLASS_REGEX, $this->getModelClass(), $matches);
 
             if (!$matches) {
                 throw new \LogicException(sprintf(
@@ -685,7 +687,7 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
             return $class;
         }
 
-        return $this->class;
+        return $this->getModelClass();
     }
 
     final public function getSubClasses(): array
@@ -1010,16 +1012,6 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
         }
 
         return $this->getParentFieldDescription()->getAdmin()->getRoot();
-    }
-
-    final public function setBaseControllerName(string $baseControllerName): void
-    {
-        $this->baseControllerName = $baseControllerName;
-    }
-
-    final public function getBaseControllerName(): string
-    {
-        return $this->baseControllerName;
     }
 
     final public function getMaxPerPage(): int
@@ -1561,11 +1553,6 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
     final public function hasRequest(): bool
     {
         return null !== $this->request;
-    }
-
-    final public function getCode(): string
-    {
-        return $this->code;
     }
 
     final public function getBaseCodeRoute(): string
@@ -2267,7 +2254,17 @@ abstract class AbstractAdmin extends AbstractTaggedAdmin implements AdminInterfa
 
                 if (null !== $parentObject) {
                     $propertyAccessor = PropertyAccess::createPropertyAccessor();
-                    $value = $propertyAccessor->getValue($object, $parentAssociationMapping);
+
+                    try {
+                        $value = $propertyAccessor->getValue($object, $parentAssociationMapping);
+                    } catch (AccessException $e) {
+                        // @todo: Catching and checking AccessException here as BC for symfony/property-access < 5.1.
+                        //        Catch UninitializedPropertyException and remove the check when dropping support < 5.1
+                        if (!$e instanceof UninitializedPropertyException && AccessException::class !== \get_class($e)) {
+                            throw $e; // Re-throw. We only want to "ignore" pure AccessException (Sf < 5.1) and UninitializedPropertyException (Sf >= 5.1)
+                        }
+                        $value = null;
+                    }
 
                     if (\is_array($value) || $value instanceof \ArrayAccess) {
                         $value[] = $parentObject;

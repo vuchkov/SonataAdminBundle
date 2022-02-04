@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [4.8.1](https://github.com/sonata-project/SonataAdminBundle/compare/4.8.0...4.8.1) - 2022-01-31
+### Fixed
+- [[#7716](https://github.com/sonata-project/SonataAdminBundle/pull/7716)] Configure the admin with the `sonata_admin` tag before any custom `call` provided in the service configuration. ([@VincentLanglet](https://github.com/VincentLanglet))
+- [[#7681](https://github.com/sonata-project/SonataAdminBundle/pull/7681)] Disabling `global_search` for admin with non-default code. ([@VincentLanglet](https://github.com/VincentLanglet))
+
+## [4.8.0](https://github.com/sonata-project/SonataAdminBundle/compare/4.7.0...4.8.0) - 2022-01-25
+### Added
+- [[#7684](https://github.com/sonata-project/SonataAdminBundle/pull/7684)] `code`, `model_class` and `controller` attribute to the `sonata.admin` service tag ([@VincentLanglet](https://github.com/VincentLanglet))
+- [[#7708](https://github.com/sonata-project/SonataAdminBundle/pull/7708)] Added support to display backed enums in lists and show templates ([@franmomu](https://github.com/franmomu))
+
+### Deprecated
+- [[#7684](https://github.com/sonata-project/SonataAdminBundle/pull/7684)] Passing the code, the model class and the controller name as first, second and third argument of the Admin constructor. Use the `sonata.admin` attributes instead. ([@VincentLanglet](https://github.com/VincentLanglet))
+
 ## [4.7.0](https://github.com/sonata-project/SonataAdminBundle/compare/4.6.1...4.7.0) - 2022-01-05
 ### Added
 - [[#7685](https://github.com/sonata-project/SonataAdminBundle/pull/7685)] Support for `symfony/translation-contracts` 3.x ([@jordisala1991](https://github.com/jordisala1991))
@@ -235,6 +248,10 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [4.0.0-alpha-1](https://github.com/sonata-project/SonataAdminBundle/compare/3.105.0...4.0.0-alpha-1) - 2021-04-11
 See UPGRADE-4.0.md
+
+## [3.107.2](https://github.com/sonata-project/SonataAdminBundle/compare/3.107.1...3.107.2) - 2022-01-19
+### Fixed
+- [[#7705](https://github.com/sonata-project/SonataAdminBundle/pull/7705)] Catch AccessException in AbstractAdmin::appendParentObject() to prevent an error when the property for the parent object is uninitialised. ([@7ochem](https://github.com/7ochem))
 
 ## [3.107.1](https://github.com/sonata-project/SonataAdminBundle/compare/3.107.0...3.107.1) - 2022-01-01
 ### Fixed

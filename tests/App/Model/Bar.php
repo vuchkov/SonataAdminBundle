@@ -11,22 +11,33 @@ declare(strict_types=1);
  * file that was distributed with this source code.
  */
 
-namespace Sonata\AdminBundle\Tests\Fixtures\Entity;
+namespace Sonata\AdminBundle\Tests\App\Model;
 
-final class Entity extends AbstractEntity
+final class Bar implements EntityInterface
 {
     /**
-     * @var int
+     * @var string
      */
     private $id;
 
-    public function __construct(int $id)
+    /**
+     * @var Foo|null
+     */
+    private $foo;
+
+    public function __construct(string $id, ?Foo $foo = null)
     {
         $this->id = $id;
+        $this->foo = $foo;
     }
 
-    public function getId(): int
+    public function getId(): string
     {
         return $this->id;
+    }
+
+    public function getFoo(): ?Foo
+    {
+        return $this->foo;
     }
 }

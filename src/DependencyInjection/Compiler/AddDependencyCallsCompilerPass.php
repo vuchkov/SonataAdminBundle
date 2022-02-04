@@ -23,10 +23,12 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Exception\InvalidArgumentException;
+
 use Symfony\Component\DependencyInjection\Reference;
 
 /**
- * Add all dependencies to the Admin class, this avoid to write too many lines
+ * Add all dependencies to the Admin class, this avoids writing too many lines
  * in the configuration files.
  *
  * @internal
@@ -81,12 +83,24 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
                     $parentDefinition = $container->getDefinition($definition->getParent());
                 }
 
-                $this->replaceDefaultArguments([
-                    0 => $id,
-                    2 => $defaultController,
-                ], $definition, $parentDefinition);
-                $this->applyConfigurationFromAttribute($definition, $attributes);
-                $this->applyDefaults($container, $id, $attributes);
+                // NEXT_MAJOR: Remove the following code.
+                if (!isset($attributes['model_class'])) {
+                    // Since the model_class attribute will be mandatory we're assuming that
+                    // - if it's used the new syntax is used, so we don't need to replace the arguments
+                    // - if it's not used, the old syntax is used, so we still need to
+
+                    $this->replaceDefaultArguments([
+                        0 => $id,
+                        2 => $defaultController,
+                    ], $definition, $parentDefinition);
+                }
+
+                $definition->setMethodCalls(array_merge(
+                    $this->getDefaultMethodCalls($container, $id, $attributes),
+                    $definition->getMethodCalls()
+                ));
+
+                $this->fixTemplates($id, $container, $definition);
 
                 $arguments = null !== $parentDefinition ?
                     array_merge($parentDefinition->getArguments(), $definition->getArguments()) :
@@ -94,24 +108,26 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
 
                 $admins[] = $id;
 
-                if (!isset($classes[$arguments[1]])) {
-                    $classes[$arguments[1]] = [];
+                // NEXT_MAJOR: Remove the fallback to $arguments[1].
+                $modelClass = $attributes['model_class'] ?? $arguments[1];
+                if (!isset($classes[$modelClass])) {
+                    $classes[$modelClass] = [];
                 }
 
                 $default = (bool) (isset($attributes['default']) ? $parameterBag->resolveValue($attributes['default']) : false);
                 if ($default) {
-                    if (isset($classes[$arguments[1]][Pool::DEFAULT_ADMIN_KEY])) {
+                    if (isset($classes[$modelClass][Pool::DEFAULT_ADMIN_KEY])) {
                         throw new \RuntimeException(sprintf(
                             'The class %s has two admins %s and %s with the "default" attribute set to true. Only one is allowed.',
-                            $arguments[1],
-                            $classes[$arguments[1]][Pool::DEFAULT_ADMIN_KEY],
+                            $modelClass,
+                            $classes[$modelClass][Pool::DEFAULT_ADMIN_KEY],
                             $id
                         ));
                     }
 
-                    $classes[$arguments[1]][Pool::DEFAULT_ADMIN_KEY] = $id;
+                    $classes[$modelClass][Pool::DEFAULT_ADMIN_KEY] = $id;
                 } else {
-                    $classes[$arguments[1]][] = $id;
+                    $classes[$modelClass][] = $id;
                 }
 
                 $showInDashboard = (bool) (isset($attributes['show_in_dashboard']) ? $parameterBag->resolveValue($attributes['show_in_dashboard']) : true);
@@ -254,52 +270,26 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
     }
 
     /**
-     * This method read the attribute keys and configure admin class to use the related dependency.
-     *
-     * @param array<string, mixed> $attributes
-     */
-    private function applyConfigurationFromAttribute(Definition $definition, array $attributes): void
-    {
-        $keys = [
-            'model_manager',
-            'data_source',
-            'field_description_factory',
-            'form_contractor',
-            'show_builder',
-            'list_builder',
-            'datagrid_builder',
-            'translator',
-            'configuration_pool',
-            'route_generator',
-            'security_handler',
-            'menu_factory',
-            'route_builder',
-            'label_translator_strategy',
-        ];
-
-        foreach ($keys as $key) {
-            $method = $this->generateSetterMethodName($key);
-
-            if (!isset($attributes[$key]) || $definition->hasMethodCall($method)) {
-                continue;
-            }
-
-            $definition->addMethodCall($method, [new Reference($attributes[$key])]);
-        }
-    }
-
-    /**
      * Apply the default values required by the AdminInterface to the Admin service definition.
      *
      * @param array<string, mixed> $attributes
+     *
+     * @return array<array{string, array<mixed>}>
      */
-    private function applyDefaults(ContainerBuilder $container, string $serviceId, array $attributes = []): Definition
+    private function getDefaultMethodCalls(ContainerBuilder $container, string $serviceId, array $attributes = []): array
     {
         $definition = $container->getDefinition($serviceId);
+        $methodCalls = [];
 
         $definition->setShared(false);
 
-        $managerType = $attributes['manager_type'];
+        $managerType = $attributes['manager_type'] ?? null;
+        if (null === $managerType) {
+            throw new InvalidArgumentException(sprintf('Missing tag information "manager_type" on service "%s".', $serviceId));
+        }
+
+        $defaultController = $container->getParameter('sonata.admin.configuration.default_controller');
+        \assert(\is_string($defaultController));
 
         $overwriteAdminConfiguration = $container->getParameter('sonata.admin.configuration.default_admin_services');
         \assert(\is_array($overwriteAdminConfiguration));
@@ -321,26 +311,50 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
             'label_translator_strategy' => 'sonata.admin.label.strategy.native',
         ];
 
-        $definition->addMethodCall('setManagerType', [$managerType]);
+        $methodCalls[] = ['setManagerType', [$managerType]];
 
         foreach ($defaultAddServices as $attr => $addServiceId) {
             $method = $this->generateSetterMethodName($attr);
-
-            if (!$definition->hasMethodCall($method)) {
-                $args = [new Reference($overwriteAdminConfiguration[$attr] ?? $addServiceId)];
-                if ('translator' === $attr) {
-                    $args[] = false;
-                }
-
-                $definition->addMethodCall($method, $args);
+            if ($definition->hasMethodCall($method)) {
+                continue;
             }
+
+            $args = [new Reference($attributes[$attr] ?? $overwriteAdminConfiguration[$attr] ?? $addServiceId)];
+            if ('translator' === $attr) {
+                $args[] = false;
+            }
+
+            $methodCalls[] = [$method, $args];
+        }
+
+        $defaultController = $container->getParameter('sonata.admin.configuration.default_controller');
+        \assert(\is_string($defaultController));
+
+        $modelClass = $attributes['model_class'] ?? null;
+        if (null === $modelClass) {
+            @trigger_error(
+                'Not setting the "model_class" attribute is deprecated'
+                .' since sonata-project/admin-bundle 4.8 and will throw an error in 5.0.',
+                \E_USER_DEPRECATED
+            );
+
+        // NEXT_MAJOR: Uncomment the exception instead of the deprecation.
+            // throw new InvalidArgumentException(sprintf('Missing tag information "model_class" on service "%s".', $serviceId));
+        } else {
+            $methodCalls[] = ['setModelClass', [$modelClass]];
+
+            $controller = $attributes['controller'] ?? $defaultController;
+            $methodCalls[] = ['setBaseControllerName', [$controller]];
+
+            $code = $attributes['code'] ?? $serviceId;
+            $methodCalls[] = ['setCode', [$code]];
         }
 
         $pagerType = $overwriteAdminConfiguration['pager_type'] ?? $attributes['pager_type'] ?? Pager::TYPE_DEFAULT;
-        $definition->addMethodCall('setPagerType', [$pagerType]);
+        $methodCalls[] = ['setPagerType', [$pagerType]];
 
         $label = $overwriteAdminConfiguration['label'] ?? $attributes['label'] ?? null;
-        $definition->addMethodCall('setLabel', [$label]);
+        $methodCalls[] = ['setLabel', [$label]];
 
         $persistFilters = $attributes['persist_filters']
             ?? $container->getParameter('sonata.admin.configuration.filters.persist');
@@ -351,7 +365,7 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
 
         // configure filters persistence, if configured to
         if ($persistFilters) {
-            $definition->addMethodCall('setFilterPersister', [new Reference($filtersPersister)]);
+            $methodCalls[] = ['setFilterPersister', [new Reference($filtersPersister)]];
         }
 
         $showMosaicButton = $overwriteAdminConfiguration['show_mosaic_button']
@@ -363,12 +377,10 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
         if (!$showMosaicButton) {
             unset($listModes['mosaic']);
         }
-        $definition->addMethodCall('setListModes', [$listModes]);
-
-        $this->fixTemplates($serviceId, $container, $definition);
+        $methodCalls[] = ['setListModes', [$listModes]];
 
         if ($container->hasParameter('sonata.admin.configuration.security.information') && !$definition->hasMethodCall('setSecurityInformation')) {
-            $definition->addMethodCall('setSecurityInformation', ['%sonata.admin.configuration.security.information%']);
+            $methodCalls[] = ['setSecurityInformation', ['%sonata.admin.configuration.security.information%']];
         }
 
         $defaultTemplates = $container->getParameter('sonata.admin.configuration.templates');
@@ -376,14 +388,14 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
 
         if (!$definition->hasMethodCall('setFormTheme')) {
             $formTheme = $defaultTemplates['form_theme'] ?? [];
-            $definition->addMethodCall('setFormTheme', [$formTheme]);
+            $methodCalls[] = ['setFormTheme', [$formTheme]];
         }
         if (!$definition->hasMethodCall('setFilterTheme')) {
             $filterTheme = $defaultTemplates['filter_theme'] ?? [];
-            $definition->addMethodCall('setFilterTheme', [$filterTheme]);
+            $methodCalls[] = ['setFilterTheme', [$filterTheme]];
         }
 
-        return $definition;
+        return $methodCalls;
     }
 
     private function fixTemplates(
@@ -442,6 +454,8 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
     }
 
     /**
+     * NEXT_MAJOR: Remove this method.
+     *
      * Replace the empty arguments required by the Admin service definition.
      *
      * @param string[] $defaultArguments
@@ -456,7 +470,7 @@ final class AddDependencyCallsCompilerPass implements CompilerPassInterface
 
         foreach ($defaultArguments as $index => $value) {
             $declaredInParent = null !== $parentDefinition && \array_key_exists($index, $parentArguments);
-            $argumentValue = $declaredInParent ? $parentArguments[$index] : $arguments[$index];
+            $argumentValue = $declaredInParent ? $parentArguments[$index] : $arguments[$index] ?? null;
 
             if (null === $argumentValue || '' === $argumentValue) {
                 $arguments[$declaredInParent ? sprintf('index_%s', $index) : $index] = $value;

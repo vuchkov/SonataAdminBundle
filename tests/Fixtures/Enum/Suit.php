@@ -11,12 +11,11 @@ declare(strict_types=1);
  * file that was distributed with this source code.
  */
 
-namespace Sonata\AdminBundle\Tests\Fixtures\Bundle\Entity;
+namespace Sonata\AdminBundle\Tests\Fixtures\Enum;
 
-final class Comment
-{
-    public function __toString(): string
-    {
-        return 'this is a comment';
-    }
+enum Suit: string {
+    case Hearts = 'H';
+    case Diamonds = 'D';
+    case Clubs = 'C';
+    case Spades = 'S';
 }
